@@ -104,4 +104,12 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+                               //
+                               //Alarm Definitions
+  // SIG ALARM DEFINITION
+  int total_ticks;            // TOTAL NUMBER OF TICKS UNDER HANDLER
+  int ticks_till_now;         // TICKS ELAPSED
+  void(*alarm_handler)();       // ADDRESS OF THE ALARM HANDLER
+  int isHandling;             // WHETHER THE ALARM IS CURRENTLY BEING HANDLED
+  struct trapframe *alarm_trapframe; // SAVE THE OLD TRAPFRAME
 };
