@@ -417,8 +417,67 @@ bmap(struct inode *ip, uint bn)
     return addr;
   }
 
+  bn -= NINDIRECT;
+
+  if(bn < DINDIRECT) {
+     if((addr = ip->addrs[NDIRECT+1]) == 0) {
+	  addr = balloc(ip->dev);
+	  if(addr == 0)
+		return 0;
+	  ip->addrs[NDIRECT+1] = addr;
+	  }
+
+	  bp = bread(ip->dev, addr);
+	  a = (uint*) bp -> data;
+
+	  uint new_bn = bn / NINDIRECT;
+	  if((addr = a[new_bn]) == 0) { 
+		addr = balloc(ip->dev);
+		if(addr == 0)
+		   return 0;
+		a[new_bn] = addr;
+		log_write(bp);
+	  }
+	  
+	  brelse(bp);
+	  bp = bread(ip->dev, addr);
+	  a = (uint*) bp -> data;
+
+	  new_bn = bn % NINDIRECT;
+	  if((addr = a[new_bn]) == 0) {
+		  addr = balloc(ip->dev);
+		  if(addr == 0)
+		     return 0;
+		  a[new_bn] = addr;
+		  log_write(bp);
+	  }
+	  
+	  brelse(bp);
+	  return addr;
+	}
+
   panic("bmap: out of range");
 }
+
+/*
+
+0- BLOCK
+1- BLOCK
+2- BLOCK
+3- BLOCK
+4- BLOCK
+5- BLOCK
+6- BLOCK
+7- BLOCK
+8- BLOCK
+9- BLOCK
+10 - BLOCK  					-------> 11 blocks
+11 - [256] -> BLOCK  				-------> 11 + 256 = 267 blocks
+12 - [256] -> [256] -> BLOCK 			-------> 267 + 65536 = 65803 blocks
+
+total_blocks = 11 + 256 + 256*256 = 65803 blocks
+
+*/
 
 // Truncate inode (discard contents).
 // Caller must hold ip->lock.
