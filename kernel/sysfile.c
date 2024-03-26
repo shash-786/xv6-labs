@@ -11,10 +11,11 @@
 #include "stat.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "fcntl.h"
 #include "fs.h"
 #include "sleeplock.h"
 #include "file.h"
-#include "fcntl.h"
+
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -502,4 +503,75 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+uint64
+mmap(void) {
+    uint64 addr;
+    int len, flags, prot, fd, offset;
+    struct file* f;
+
+    argaddr(0, &addr); 
+    argint(1, &len); 
+    argint(2, &prot); 
+    argint(3, &flags); 
+    argfd(4, &fd, &f);
+    argint(5, &offset);
+
+    struct proc* p = myproc();
+    if((flags == MAP_SHARED) && (!f->writable) && (prot&PROT_WRITE))
+	    return 0xffffffffffffffff;
+
+    if(p->sz + len > MAXVA)
+	   return 0xffffffffffffffff;
+
+    addr = p -> sz;
+    p -> sz += len;
+    
+    for(int i=0; i<16; i++) {
+	if(p->vma[i].used == 0) {
+	   p->vma[i].used = 1;
+	   p->vma[i].addr = addr;
+	   p->vma[i].prot = prot;
+	   p->vma[i].flags = flags;
+	   p->vma[i].end = p -> sz;
+	   p->vma[i].offset = offset; 
+	   p->vma[i].fd = fd;
+	   p->vma[i].pf = f;
+
+	   filedup(f);
+	   return p->vma[i].addr;
+	}
+    }
+    return 0xffffffffffffffff;
+}
+
+
+uint64
+munmap(void) {
+    uint64 addr;
+    int len;
+    argaddr(0,&addr); 
+    argint(1, &len); 
+
+    struct proc* p = myproc();
+    int i=0;
+    for(; i<16; i++) {
+	if(p->vma[i].used == 1 && addr >= p->vma[i].addr && addr <= p->vma[i].end){
+	    p->vma[i].len -= len;
+            if((p->vma[i].flags & MAP_SHARED) && (p->vma[i].prot & PROT_WRITE))
+		filewrite(p->vma[i].pf, addr, len);
+	    uvmunmap(p->pagetable, addr, len/PGSIZE, 1);
+	    break;
+	}    
+    }
+    if(addr == p->vma[i].addr && p->vma[i].len > 0)
+        p->vma[i].addr = addr + len;
+    else if(addr == p->vma[i].addr && p->vma[i].len == 0) {
+	fileclose(p->vma[i].pf);
+    	p->vma[i].used = 0;
+    }
+    else if(addr + len == p->vma[i].end)
+	p->vma[i].end = addr;
+    return 0;
 }
