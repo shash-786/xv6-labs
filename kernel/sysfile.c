@@ -256,6 +256,8 @@ create(char *path, short type, short major, short minor)
   if((ip = dirlookup(dp, name, 0)) != 0){
     iunlockput(dp);
     ilock(ip);
+    if(type == T_SYMLINK)
+      return ip;
     if(type == T_FILE && (ip->type == T_FILE || ip->type == T_DEVICE))
       return ip;
     iunlockput(ip);
@@ -328,6 +330,33 @@ sys_open(void)
       return -1;
     }
     ilock(ip);
+    if((ip->type == T_SYMLINK) && !(omode&O_NOFOLLOW)) {
+	int link_counter = 0;
+	while(link_counter < 10 && ip->type == T_SYMLINK) {
+	    int len = 0;
+	    readi(ip, 0, (uint64)&len, 0, sizeof(int));
+
+	    if(len >  MAXPATH) 
+		panic("sys_open: Length too big");
+
+	    readi(ip, 0, (uint64)path, sizeof(int), len+1);
+	    iunlockput(ip);
+
+	    if((ip = namei(path)) == 0) {
+	 	end_op();
+		return -1;
+	    }
+	    ilock(ip);
+	    link_counter++;
+	}
+
+	if(link_counter >= 10) {
+	    printf("Infinte Cycle");
+	    iunlockput(ip);
+	    end_op();
+	    return -1;
+	}
+    }
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
       end_op();
@@ -501,5 +530,33 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+
+uint64
+sys_symlink(void) {
+
+  struct inode *ip;
+  char path[MAXPATH], target[MAXPATH];
+
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+
+  begin_op();
+  ip = create(path, T_SYMLINK, 0, 0);
+
+  if(ip == 0) {
+    end_op();
+    return -1;
+  }
+
+  int len = strlen(target);
+  writei(ip, 0, (uint64)&len, 0, sizeof(int));
+  writei(ip, 0, (uint64)target, sizeof(int), len+1);
+
+  iunlockput(ip);
+
+  end_op();
   return 0;
 }
